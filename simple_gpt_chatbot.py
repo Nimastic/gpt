@@ -5,6 +5,17 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import string
 from tqdm import tqdm
+import os
+
+# ====== Hyperparameters ======
+MAX_SEQ_LENGTH = 512
+EMBED_DIM = 128
+NUM_HEADS = 8
+HIDDEN_DIM = 512
+NUM_LAYERS = 2
+BATCH_SIZE = 64
+EPOCHS = 10
+LEARNING_RATE = 0.001
 
 # ====== Data Preparation ======
 
@@ -50,16 +61,16 @@ class ChatDataset(Dataset):
 # ====== Model Definition ======
 
 class SimpleGPT(nn.Module):
-    def __init__(self, vocab_size, embed_dim, num_heads, hidden_dim, num_layers, seq_length):
+    def __init__(self, vocab_size, embed_dim, num_heads, hidden_dim, num_layers):
         super(SimpleGPT, self).__init__()
         self.embed = nn.Embedding(vocab_size, embed_dim)
-        self.pos_embed = nn.Embedding(seq_length, embed_dim)
+        self.pos_embed = nn.Embedding(MAX_SEQ_LENGTH, embed_dim)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=embed_dim,
             nhead=num_heads,
             dim_feedforward=hidden_dim,
             activation='gelu',
-            batch_first=True  # Set batch_first=True
+            batch_first=True
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.fc_out = nn.Linear(embed_dim, vocab_size)
@@ -67,28 +78,18 @@ class SimpleGPT(nn.Module):
     def forward(self, x):
         seq_length = x.size(1)
         positions = torch.arange(0, seq_length, device=x.device).unsqueeze(0)
+        positions = positions.clamp(max=MAX_SEQ_LENGTH - 1)
         x = self.embed(x) + self.pos_embed(positions)
         src_mask = nn.Transformer.generate_square_subsequent_mask(seq_length).to(x.device)
         x = self.encoder(x, mask=src_mask)
         logits = self.fc_out(x)
         return logits
 
-# ====== Hyperparameters ======
-
-SEQ_LENGTH = 32
-EMBED_DIM = 128
-NUM_HEADS = 8
-HIDDEN_DIM = 512
-NUM_LAYERS = 2
-BATCH_SIZE = 64
-EPOCHS = 10
-LEARNING_RATE = 0.001
-
 # ====== Training Preparation ======
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-dataset = ChatDataset(text, SEQ_LENGTH)
+dataset = ChatDataset(text, seq_length=32)
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 model = SimpleGPT(
@@ -96,43 +97,42 @@ model = SimpleGPT(
     embed_dim=EMBED_DIM,
     num_heads=NUM_HEADS,
     hidden_dim=HIDDEN_DIM,
-    num_layers=NUM_LAYERS,
-    seq_length=SEQ_LENGTH
+    num_layers=NUM_LAYERS
 ).to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-# ====== Training Loop ======
+# ====== Training Function ======
 
-print("Starting training...")
-for epoch in range(EPOCHS):
-    model.train()
-    epoch_loss = 0
-    progress_bar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{EPOCHS}')
-    for inputs, targets in progress_bar:
-        inputs, targets = inputs.to(device), targets.to(device)
+def train_model():
+    print("Starting training...")
+    for epoch in range(EPOCHS):
+        model.train()
+        epoch_loss = 0
+        progress_bar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{EPOCHS}')
+        for inputs, targets in progress_bar:
+            inputs, targets = inputs.to(device), targets.to(device)
 
-        optimizer.zero_grad()
-        outputs = model(inputs)
+            optimizer.zero_grad()
+            outputs = model(inputs)
 
-        # Reshape outputs and targets for the loss function
-        outputs = outputs.view(-1, vocab_size)
-        targets = targets.view(-1)
+            # Reshape outputs and targets for the loss function
+            outputs = outputs.view(-1, vocab_size)
+            targets = targets.view(-1)
 
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
 
-        epoch_loss += loss.item()
-        progress_bar.set_postfix(loss=loss.item())
+            epoch_loss += loss.item()
+            progress_bar.set_postfix(loss=loss.item())
 
-    avg_loss = epoch_loss / len(dataloader)
-    print(f'Epoch {epoch+1}, Average Loss: {avg_loss:.4f}')
-
-# Save the trained model
-torch.save(model.state_dict(), 'simple_gpt.pth')
-print("Training completed and model saved as 'simple_gpt.pth'.")
+        avg_loss = epoch_loss / len(dataloader)
+        print(f'Epoch {epoch+1}, Average Loss: {avg_loss:.4f}')
+    # Save the trained model
+    torch.save(model.state_dict(), 'simple_gpt.pth')
+    print("Training completed and model saved as 'simple_gpt.pth'.")
 
 # ====== Chatbot Interface ======
 
@@ -145,6 +145,7 @@ def generate_response(model, prompt, max_length=100):
         for _ in range(max_length):
             seq_length = input_ids.size(1)
             positions = torch.arange(0, seq_length, device=device).unsqueeze(0)
+            positions = positions.clamp(max=MAX_SEQ_LENGTH - 1)
             x = model.embed(input_ids) + model.pos_embed(positions)
             src_mask = nn.Transformer.generate_square_subsequent_mask(seq_length).to(device)
             x = model.encoder(x, mask=src_mask)
@@ -164,10 +165,6 @@ def generate_response(model, prompt, max_length=100):
     return response.strip()
 
 def chat():
-    # Load the model for inference
-    model.load_state_dict(torch.load('simple_gpt.pth', map_location=device))
-    model.eval()
-
     print("\nWelcome to the Simple GPT Chatbot! Type 'exit' to quit.")
     while True:
         user_input = input("You: ").strip()
@@ -183,4 +180,11 @@ def chat():
         print(f"Assistant: {response}")
 
 if __name__ == "__main__":
+    model_file = 'simple_gpt.pth'
+    if os.path.exists(model_file):
+        print(f"Loading the model from '{model_file}'...")
+        model.load_state_dict(torch.load(model_file, map_location=device))
+        model.eval()
+    else:
+        train_model()
     chat()
