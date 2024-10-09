@@ -1,10 +1,9 @@
-Transformer-Based Language Model (GPT-1.0 Inspired)
+##Transformer-Based Language Model (GPT-1.0 Inspired)
 
-Project Structure
+###Project Structure
 The project is organized into the following directories and files:
 
-bash
-Copy code
+```bash
 project/
 ├── data/
 │   └── text_data.txt                # Preprocessed training data (WikiText-103)
