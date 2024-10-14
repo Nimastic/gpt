@@ -1,0 +1,11 @@
+Welcome to the GPT-2 Chatbot! Type 'exit' to quit.
+You: Hi there!
+Assistant: Hello! How can I assist you today?
+You: Can you recommend a good book?
+Assistant: Sure! What genre are you interested in?
+You: Science fiction.
+Assistant: You might like 'Dune' by Frank Herbert.
+You: Thanks!
+Assistant: You're welcome! Let me know if you need anything else.
+You: exit
+Goodbye!
